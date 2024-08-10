@@ -2,8 +2,12 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
-import io
+import asyncio
+import tempfile
+import speech_recognition as sr
+import logging
+import openai
+from gtts import gTTS
 
 load_dotenv()
 
@@ -12,7 +16,8 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 @bot.event
 async def on_ready():
@@ -36,24 +41,104 @@ async def leave(ctx):
         await ctx.send("I'm not in a voice channel.")
 
 @bot.command()
-async def speak(ctx, *, text):
-    if not ctx.voice_client:
-        await ctx.send("I'm not in a voice channel. Use !join first.")
+async def listen(ctx):
+    if not ctx.author.voice:
+        await ctx.send("You need to be in a voice channel to use this command.")
         return
 
+    voice_channel = ctx.author.voice.channel
+    if ctx.voice_client is None:
+        vc = await voice_channel.connect()
+    elif ctx.voice_client.channel != voice_channel:
+        await ctx.voice_client.move_to(voice_channel)
+        vc = ctx.voice_client
+    else:
+        vc = ctx.voice_client
+
+    await ctx.send("I'm listening. Say something, and I'll respond when you're done.")
+
+    # Start recording
+    sink = discord.sinks.WaveSink()
+    vc.start_recording(
+        sink,
+        once_done,
+        ctx
+    )
+
+    # Record for 10 seconds
+    await asyncio.sleep(10)
+
+    # Stop recording
+    vc.stop_recording()
+
+async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
+    for user_id, audio in sink.audio_data.items():
+        raw_audio = audio.file.read()
+        
+        logger.debug(f"Raw audio data (first 100 bytes): {raw_audio[:100]}")
+        logger.debug(f"Audio data length: {len(raw_audio)} bytes")
+
+        # Calculate and log the duration of the recording
+        bytes_per_second = 2 * 2 * 44100  # 16-bit PCM, 2 channels, 44.1 kHz
+        duration_seconds = len(raw_audio) / bytes_per_second
+        logger.debug(f"Audio duration: {duration_seconds:.2f} seconds")
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            temp_file.write(raw_audio)
+            temp_file_path = temp_file.name
+
+        logger.debug(f"Saved audio to temporary file: {temp_file_path}")
+        logger.debug(f"Audio file size: {os.path.getsize(temp_file_path)} bytes")
+
+        # Play back the recorded audio to verify its quality
+        vc = ctx.voice_client
+        try:
+            vc.play(discord.FFmpegPCMAudio(temp_file_path), after=lambda e: logger.debug("Finished playing recorded audio"))
+        except Exception as e:
+            logger.error(f"Error playing audio: {e}")
+
+        await process_audio(ctx, temp_file_path)
+
+        os.unlink(temp_file_path)
+
+async def process_audio(ctx, audio_file_path):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_file_path) as source:
+        # Adjust for ambient noise and record the audio
+        recognizer.adjust_for_ambient_noise(source, duration=1)
+        audio = recognizer.record(source)
+    
     try:
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice="alloy",
-            input=text
+        transcript = recognizer.recognize_google(audio)
+        logger.debug(f"Transcription: {transcript}")
+        await ctx.send(f"Transcription: {transcript}")
+
+        # Generate response using OpenAI
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=transcript,
+            max_tokens=150
         )
-        
-        audio_data = io.BytesIO(response.content)
-        
-        ctx.voice_client.play(discord.FFmpegPCMAudio(audio_data, pipe=True))
-        await ctx.send(f"Speaking: {text}")
+        response_text = response.choices[0].text.strip()
+        logger.debug(f"Response: {response_text}")
+
+        # Convert response text to speech
+        tts = gTTS(response_text)
+        response_audio_path = tempfile.mktemp(suffix=".mp3")
+        tts.save(response_audio_path)
+
+        # Play the response audio in the voice channel
+        vc = ctx.voice_client
+        vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: os.remove(response_audio_path))
+
+    except sr.UnknownValueError:
+        logger.error("Google Speech Recognition could not understand the audio")
+        await ctx.send("Sorry, I couldn't understand the audio. Please try speaking more clearly.")
+    except sr.RequestError as e:
+        logger.error(f"Could not request results from Google Speech Recognition service; {e}")
+        await ctx.send(f"Could not request results; {e}")
     except Exception as e:
-        print(f"Error in text_to_speech: {str(e)}")
-        await ctx.send("Sorry, I couldn't generate the audio response.")
+        logger.error(f"An error occurred during audio processing: {e}")
+        await ctx.send(f"An error occurred: {e}")
 
 bot.run(os.getenv('DISCORD_TOKEN'))
