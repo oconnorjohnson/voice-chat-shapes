@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import asyncio
 import tempfile
 import logging
-import openai
+from openai import OpenAI
 from gtts import gTTS
 
 load_dotenv()
@@ -17,6 +17,9 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+openai_api_key = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=openai_api_key)
 
 @bot.event
 async def on_ready():
@@ -82,41 +85,40 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
         duration_seconds = len(raw_audio) / bytes_per_second
         logger.debug(f"Audio duration: {duration_seconds:.2f} seconds")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-            temp_file.write(raw_audio)
-            temp_file_path = temp_file.name
+        audio_path = tempfile.mktemp(suffix=".wav")
+        with open(audio_path, 'wb') as f:
+            f.write(raw_audio)
 
-        logger.debug(f"Saved audio to temporary file: {temp_file_path}")
-        logger.debug(f"Audio file size: {os.path.getsize(temp_file_path)} bytes")
-
-        # Play back the recorded audio to verify its quality
-        vc = ctx.voice_client
-        try:
-            vc.play(discord.FFmpegPCMAudio(temp_file_path), after=lambda e: logger.debug("Finished playing recorded audio"))
-        except Exception as e:
-            logger.error(f"Error playing audio: {e}")
-
-        await process_audio(ctx, temp_file_path)
-
-        os.unlink(temp_file_path)
+        await process_audio(ctx, audio_path)
 
 async def process_audio(ctx, audio_file_path):
     try:
         # Transcribe audio using OpenAI Whisper
         with open(audio_file_path, "rb") as audio_file:
-            transcript_response = openai.Audio.transcribe("whisper-1", audio_file)
-            transcript = transcript_response["text"]
-            logger.debug(f"Transcription: {transcript}")
-            await ctx.send(f"Transcription: {transcript}")
+            transcript_response = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
 
-        # Generate response using OpenAI GPT-4o
-        response = openai.Completion.create(
-            engine="gpt-4o",
-            prompt=transcript,
+        transcription_text = transcript_response.text
+
+        if not transcription_text:
+            raise ValueError("Received an empty transcription response.")
+
+        logger.debug(f"Transcription: {transcription_text}")
+
+        # Generate a response using GPT-4
+        gpt_response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": transcription_text}
+            ],
             max_tokens=150
         )
-        response_text = response.choices[0].text.strip()
-        logger.debug(f"Response: {response_text}")
+
+        # Access the response content correctly
+        response_text = gpt_response.choices[0].message.content.strip()
+        logger.debug(f"GPT-4 Response: {response_text}")
 
         # Convert response text to speech
         tts = gTTS(response_text)
@@ -125,10 +127,21 @@ async def process_audio(ctx, audio_file_path):
 
         # Play the response audio in the voice channel
         vc = ctx.voice_client
-        vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: os.remove(response_audio_path))
+        vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: cleanup_after_playback(response_audio_path, e, ctx))
 
     except Exception as e:
         logger.error(f"An error occurred during audio processing: {e}")
         await ctx.send(f"An error occurred: {e}")
+
+    finally:
+        os.remove(audio_file_path)
+
+def cleanup_after_playback(response_audio_path, e, ctx):
+    if e:
+        logger.error(f"Error during playback: {e}")
+    os.remove(response_audio_path)
+    if ctx.voice_client and ctx.voice_client.is_connected():
+        ctx.voice_client.stop()
+        asyncio.run_coroutine_threadsafe(ctx.voice_client.disconnect(), bot.loop)
 
 bot.run(os.getenv('DISCORD_TOKEN'))
