@@ -59,7 +59,7 @@ async def listen(ctx):
 
     await ctx.send("I'm listening. Say something, and I'll respond when you're done.")
 
-    # Start recording
+
     sink = discord.sinks.WaveSink()
     vc.start_recording(
         sink,
@@ -67,10 +67,8 @@ async def listen(ctx):
         ctx
     )
 
-    # Record for 10 seconds
     await asyncio.sleep(10)
 
-    # Stop recording
     vc.stop_recording()
 
 async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
@@ -80,7 +78,7 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
         logger.debug(f"Raw audio data (first 100 bytes): {raw_audio[:100]}")
         logger.debug(f"Audio data length: {len(raw_audio)} bytes")
 
-        # Calculate and log the duration of the recording
+       
         bytes_per_second = 2 * 2 * 44100  # 16-bit PCM, 2 channels, 44.1 kHz
         duration_seconds = len(raw_audio) / bytes_per_second
         logger.debug(f"Audio duration: {duration_seconds:.2f} seconds")
@@ -93,7 +91,7 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
 
 async def process_audio(ctx, audio_file_path):
     try:
-        # Transcribe audio using OpenAI Whisper
+      
         with open(audio_file_path, "rb") as audio_file:
             transcript_response = client.audio.transcriptions.create(
                 model="whisper-1",
@@ -107,7 +105,7 @@ async def process_audio(ctx, audio_file_path):
 
         logger.debug(f"Transcription: {transcription_text}")
 
-        # Generate a response using GPT-4
+      
         gpt_response = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -116,16 +114,16 @@ async def process_audio(ctx, audio_file_path):
             max_tokens=150
         )
 
-        # Access the response content correctly
+     
         response_text = gpt_response.choices[0].message.content.strip()
         logger.debug(f"GPT-4 Response: {response_text}")
 
-        # Convert response text to speech
+       
         tts = gTTS(response_text)
         response_audio_path = tempfile.mktemp(suffix=".mp3")
         tts.save(response_audio_path)
 
-        # Play the response audio in the voice channel
+       
         vc = ctx.voice_client
         vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: cleanup_after_playback(response_audio_path, e, ctx))
 
