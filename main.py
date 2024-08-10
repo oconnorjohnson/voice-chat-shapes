@@ -4,7 +4,6 @@ import os
 from dotenv import load_dotenv
 import asyncio
 import tempfile
-import speech_recognition as sr
 import logging
 import openai
 from gtts import gTTS
@@ -102,20 +101,17 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
         os.unlink(temp_file_path)
 
 async def process_audio(ctx, audio_file_path):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file_path) as source:
-        # Adjust for ambient noise and record the audio
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-        audio = recognizer.record(source)
-    
     try:
-        transcript = recognizer.recognize_google(audio)
-        logger.debug(f"Transcription: {transcript}")
-        await ctx.send(f"Transcription: {transcript}")
+        # Transcribe audio using OpenAI Whisper
+        with open(audio_file_path, "rb") as audio_file:
+            transcript_response = openai.Audio.transcribe("whisper-1", audio_file)
+            transcript = transcript_response["text"]
+            logger.debug(f"Transcription: {transcript}")
+            await ctx.send(f"Transcription: {transcript}")
 
-        # Generate response using OpenAI
+        # Generate response using OpenAI GPT-4o
         response = openai.Completion.create(
-            engine="text-davinci-003",
+            engine="gpt-4o",
             prompt=transcript,
             max_tokens=150
         )
@@ -131,12 +127,6 @@ async def process_audio(ctx, audio_file_path):
         vc = ctx.voice_client
         vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: os.remove(response_audio_path))
 
-    except sr.UnknownValueError:
-        logger.error("Google Speech Recognition could not understand the audio")
-        await ctx.send("Sorry, I couldn't understand the audio. Please try speaking more clearly.")
-    except sr.RequestError as e:
-        logger.error(f"Could not request results from Google Speech Recognition service; {e}")
-        await ctx.send(f"Could not request results; {e}")
     except Exception as e:
         logger.error(f"An error occurred during audio processing: {e}")
         await ctx.send(f"An error occurred: {e}")
