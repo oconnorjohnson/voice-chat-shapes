@@ -7,6 +7,9 @@ import tempfile
 import logging
 from openai import OpenAI
 from gtts import gTTS
+import webrtcvad
+import pvporcupine
+import pyaudio
 
 load_dotenv()
 
@@ -20,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 openai_api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=openai_api_key)
+
+vad = webrtcvad.Vad()
+vad.set_mode(1)  # 0: very aggressive, 3: very sensitive
+
+porcupine = pvporcupine.create(keywords=["hey shape"])
 
 @bot.event
 async def on_ready():
@@ -57,8 +65,7 @@ async def listen(ctx):
     else:
         vc = ctx.voice_client
 
-    await ctx.send("I'm listening. Say something, and I'll respond when you're done.")
-
+    await ctx.send("I'm listening for the wake word 'Hey Shape'.")
 
     sink = discord.sinks.WaveSink()
     vc.start_recording(
@@ -67,7 +74,24 @@ async def listen(ctx):
         ctx
     )
 
-    await asyncio.sleep(10)
+    audio_stream = pyaudio.PyAudio().open(
+        rate=porcupine.sample_rate,
+        channels=1,
+        format=pyaudio.paInt16,
+        input=True,
+        frames_per_buffer=porcupine.frame_length
+    )
+
+    while True:
+        pcm = audio_stream.read(porcupine.frame_length)
+        pcm = np.frombuffer(pcm, dtype=np.int16)
+
+        keyword_index = porcupine.process(pcm)
+        if keyword_index >= 0:
+            await ctx.send("Wake word detected. Starting transcription.")
+            break
+
+        await asyncio.sleep(0.1)
 
     vc.stop_recording()
 
@@ -78,7 +102,6 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
         logger.debug(f"Raw audio data (first 100 bytes): {raw_audio[:100]}")
         logger.debug(f"Audio data length: {len(raw_audio)} bytes")
 
-       
         bytes_per_second = 2 * 2 * 44100  # 16-bit PCM, 2 channels, 44.1 kHz
         duration_seconds = len(raw_audio) / bytes_per_second
         logger.debug(f"Audio duration: {duration_seconds:.2f} seconds")
@@ -91,7 +114,6 @@ async def once_done(sink: discord.sinks.WaveSink, ctx: commands.Context):
 
 async def process_audio(ctx, audio_file_path):
     try:
-      
         with open(audio_file_path, "rb") as audio_file:
             transcript_response = client.audio.transcriptions.create(
                 model="whisper-1",
@@ -105,7 +127,6 @@ async def process_audio(ctx, audio_file_path):
 
         logger.debug(f"Transcription: {transcription_text}")
 
-      
         gpt_response = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -114,16 +135,13 @@ async def process_audio(ctx, audio_file_path):
             max_tokens=150
         )
 
-     
         response_text = gpt_response.choices[0].message.content.strip()
         logger.debug(f"GPT-4 Response: {response_text}")
 
-       
         tts = gTTS(response_text)
         response_audio_path = tempfile.mktemp(suffix=".mp3")
         tts.save(response_audio_path)
 
-       
         vc = ctx.voice_client
         vc.play(discord.FFmpegPCMAudio(response_audio_path), after=lambda e: cleanup_after_playback(response_audio_path, e, ctx))
 
