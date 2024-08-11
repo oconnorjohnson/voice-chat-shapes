@@ -157,3 +157,86 @@ A: Yes, it uses VAD to detect silence before processing the audio buffer.
 
 Q: Does it listen for a set amount of time?
 A: No, it listens continuously until the `!stop` command is issued or an error occurs.
+
+## Dependencies and Libraries
+
+This project relies on several Python libraries and packages. Here's a detailed breakdown of each dependency and its purpose:
+
+1. **asyncio**
+
+   - Purpose: Provides support for asynchronous programming.
+   - Usage: Used throughout the bot for non-blocking operations and concurrent task management.
+
+2. **discord.py**
+
+   - Purpose: A Python wrapper for the Discord API.
+   - Usage: Handles all interactions with Discord, including connecting to voice channels and sending messages.
+
+3. **speech_recognition**
+
+   - Purpose: Library for performing speech recognition.
+   - Usage: Used to initialize the speech recognizer (though primary transcription is done via OpenAI).
+
+4. **openai**
+
+   - Purpose: Official Python client for the OpenAI API.
+   - Usage: Used for speech-to-text (Whisper model), text generation (GPT model), and text-to-speech services.
+
+5. **python-dotenv**
+
+   - Purpose: Loads environment variables from a .env file.
+   - Usage: Securely loads API keys and tokens without hardcoding them in the script.
+
+6. **logging**
+
+   - Purpose: Python's built-in logging module.
+   - Usage: Provides comprehensive logging throughout the application for debugging and monitoring.
+
+7. **pydub**
+
+   - Purpose: Manipulates audio with a simple and easy interface.
+   - Usage: Used for potential audio file manipulations (though not actively used in the current implementation).
+
+8. **io**
+
+   - Purpose: Core Python module for handling I/O operations.
+   - Usage: Used for creating in-memory binary streams, particularly for audio data.
+
+9. **struct**
+
+   - Purpose: Performs conversions between Python values and C structs represented as Python bytes objects.
+   - Usage: Used for packing and unpacking binary data, particularly in audio processing.
+
+10. **wave**
+
+    - Purpose: Provides a convenient interface to the WAV sound format.
+    - Usage: Used for reading and writing WAV files in audio processing.
+
+11. **scipy**
+
+    - Purpose: Library for scientific computing in Python.
+    - Usage: The `scipy.io.wavfile` module is imported for potential WAV file operations (though not actively used in the current implementation).
+
+12. **webrtcvad**
+
+    - Purpose: Python interface to the WebRTC Voice Activity Detector.
+    - Usage: Used for detecting speech in audio streams, particularly for determining when a user has finished speaking.
+
+13. **numpy**
+
+    - Purpose: Fundamental package for scientific computing in Python.
+    - Usage: Used for efficient operations on arrays, particularly in audio processing and speech detection.
+
+14. **tempfile**
+
+    - Purpose: Generates temporary files and directories.
+    - Usage: Used for creating temporary files during audio processing.
+
+15. **os**
+
+    - Purpose: Provides a way of using operating system dependent functionality.
+    - Usage: Used for file and path operations, particularly in handling temporary files.
+
+16. **concurrent.futures**
+    - Purpose: Provides a high-level interface for asynchronously executing callables.
+    - Usage: The ThreadPoolExecutor is used for running CPU-bound tasks asynchronously.
