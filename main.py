@@ -102,11 +102,11 @@ async def process_audio(ctx, voice_state):
                 logger.warning("Voice client disconnected")
                 break
 
-            audio_data = await record_audio(ctx.voice_client, duration=0.05)  # Reduce to 50ms
+            audio_data = await record_audio(ctx.voice_client, duration=0.05)  
             
             if audio_data:
                 voice_state.buffer.append(audio_data)
-                if len(voice_state.buffer) > 20:  # Keep only 1 second of audio
+                if len(voice_state.buffer) > 20:  
                     voice_state.buffer.pop(0)
                 
                 if await detect_speech_end(voice_state):
@@ -114,8 +114,8 @@ async def process_audio(ctx, voice_state):
                     await process_buffer(ctx, voice_state)
                     voice_state.is_processing = False
 
-            await asyncio.sleep(0.02)  # Reduce sleep time
-    # ... (rest of the function remains the same)
+            await asyncio.sleep(0.02) 
+            
     except Exception as e:
         logger.error(f"Error processing audio: {e}", exc_info=True)
     finally:
@@ -124,26 +124,8 @@ async def process_audio(ctx, voice_state):
         logger.info("Stopped listening")
         await ctx.send("Stopped listening.")
 
-# async def detect_speech_end(voice_state):
-#     if len(voice_state.buffer) < 1:  # Ensure at least 1.5 seconds of audio
-#         return False
-
-#     # Convert the last 1.5 seconds of audio to numpy array
-#     recent_audio = b''.join(voice_state.buffer[-15:])
-#     audio_np = np.frombuffer(recent_audio, dtype=np.int16)
-
-#     # Split audio into 30ms frames
-#     frame_duration = 30  # ms
-#     frame_size = int(48000 * frame_duration / 1000)  # samples per frame
-#     frames = [audio_np[i:i+frame_size] for i in range(0, len(audio_np), frame_size)]
-
-#     # Check if the last 0.5 seconds (5 frames) are silent
-#     is_speech = [voice_state.vad.is_speech(frame.tobytes(), 48000) for frame in frames[-5:]]
-    
-#     return not any(is_speech)
-
 async def detect_speech_end(voice_state):
-    if len(voice_state.buffer) < 10:  # Reduce to 1 second of audio
+    if len(voice_state.buffer) < 10:  
         return False
 
     recent_audio = b''.join(voice_state.buffer[-10:])
