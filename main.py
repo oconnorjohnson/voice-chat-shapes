@@ -40,6 +40,7 @@ class VoiceState:
         self.last_speech_time = 0
         self.is_processing = False
         self.vad = webrtcvad.Vad(3)
+        self.stop_requested = False
 
 voice_states = {}
 
@@ -75,15 +76,25 @@ async def listen(ctx):
         return await ctx.send("I'm already listening.")
 
     voice_state.is_listening = True
-    await ctx.send("I'm listening. Speak naturally, and I'll respond.")
+    voice_state.stop_requested = False  # Reset stop flag
+    await ctx.send("I'm listening. Speak naturally, and I'll respond. Use !stop to stop listening.")
     logger.info("Started listening")
     await process_audio(ctx, voice_state)
+
+@bot.command()
+async def stop(ctx):
+    voice_state = voice_states.get(ctx.guild.id)
+    if voice_state and voice_state.is_listening:
+        voice_state.stop_requested = True
+        await ctx.send("Stopping listening...")
+    else:
+        await ctx.send("I'm not currently listening.")
 
 async def process_audio(ctx, voice_state):
     logger.info("Started processing audio")
     
     try:
-        while voice_state.is_listening:
+        while voice_state.is_listening and not voice_state.stop_requested:
             if not ctx.voice_client or not ctx.voice_client.is_connected():
                 logger.warning("Voice client disconnected")
                 break
@@ -108,7 +119,9 @@ async def process_audio(ctx, voice_state):
         logger.error(f"Error processing audio: {e}", exc_info=True)
     finally:
         voice_state.is_listening = False
+        voice_state.stop_requested = False
         logger.info("Stopped listening")
+        await ctx.send("Stopped listening.")
 
 async def detect_speech_end(voice_state):
     if len(voice_state.buffer) < 15:  # Ensure at least 1.5 seconds of audio
