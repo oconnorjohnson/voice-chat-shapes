@@ -18,8 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 thread_pool = ThreadPoolExecutor(max_workers=3)
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# # Set up logging
+logging.basicConfig()
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -47,9 +47,9 @@ class VoiceState:
 
 voice_states = {}
 
-@bot.event
-async def on_ready():
-    logger.info(f'Logged in as {bot.user.name}')
+# @bot.event
+# async def on_ready():
+    # logger.info(f'Logged in as {bot.user.name}')
 
 @bot.command()
 async def join(ctx):
@@ -63,7 +63,7 @@ async def join(ctx):
         await channel.connect()
     
     await ctx.send(f"Joined {channel.name}")
-    logger.info(f"Joined voice channel: {channel.name}")
+   #  logger.info(f"Joined voice channel: {channel.name}")
 
 @bot.command()
 async def listen(ctx):
@@ -81,7 +81,7 @@ async def listen(ctx):
     voice_state.is_listening = True
     voice_state.stop_requested = False  # Reset stop flag
     await ctx.send("I'm listening. Speak naturally, and I'll respond. Use !stop to stop listening.")
-    logger.info("Started listening")
+    # logger.info("Started listening")
     await process_audio(ctx, voice_state)
 
 @bot.command()
@@ -94,12 +94,12 @@ async def stop(ctx):
         await ctx.send("I'm not currently listening.")
 
 async def process_audio(ctx, voice_state):
-    logger.info("Started processing audio")
+    # logger.info("Started processing audio")
     
     try:
         while voice_state.is_listening and not voice_state.stop_requested:
             if not ctx.voice_client or not ctx.voice_client.is_connected():
-                logger.warning("Voice client disconnected")
+                # logger.warning("Voice client disconnected")
                 break
 
             audio_data = await record_audio(ctx.voice_client, duration=0.05)  
@@ -121,7 +121,7 @@ async def process_audio(ctx, voice_state):
     finally:
         voice_state.is_listening = False
         voice_state.stop_requested = False
-        logger.info("Stopped listening")
+        
         await ctx.send("Stopped listening.")
 
 async def detect_speech_end(voice_state):
@@ -162,7 +162,7 @@ async def process_audio_chunk(ctx, audio_data):
         
         user_input = transcript.text
         if user_input.strip():
-            logger.info(f"Transcribed user input: {user_input}")
+            # logger.info(f"Transcribed user input: {user_input}")
             
             # Generate AI response in parallel with sending the transcription
             response_task = asyncio.create_task(generate_ai_response(user_input))
@@ -210,7 +210,7 @@ async def process_audio_chunk(ctx, audio_data):
         
         user_input = transcript.text
         if user_input.strip():  # Only process non-empty transcriptions
-            logger.info(f"Transcribed user input: {user_input}")
+            # logger.info(f"Transcribed user input: {user_input}")
             await ctx.send(f"You said: {user_input}")
             response = await generate_ai_response(user_input)
             await send_audio_response(ctx, response)
@@ -234,10 +234,10 @@ async def generate_ai_response(user_input):
             ]
         )
         ai_response = response.choices[0].message.content
-        logger.info(f"Generated AI response: {ai_response}")
+        # logger.info(f"Generated AI response: {ai_response}")
         return ai_response
     except Exception as e:
-        logger.error(f"Error generating AI response: {e}")
+        # logger.error(f"Error generating AI response: {e}")
         return "Sorry, I couldn't generate a response at this time."
 
 async def send_audio_response(ctx, text):
@@ -252,9 +252,9 @@ async def send_audio_response(ctx, text):
         audio_source = discord.FFmpegPCMAudio(io.BytesIO(response.content), pipe=True)
         ctx.voice_client.play(audio_source)
         
-        logger.info("Sent streaming audio response")
+     #   logger.info("Sent streaming audio response")
     except Exception as e:
-        logger.error(f"Error sending audio response: {e}")
+        # logger.error(f"Error sending audio response: {e}")
         await ctx.send("Sorry, I couldn't send an audio response. Here's the text: " + text)
 
 @bot.command()
@@ -264,7 +264,7 @@ async def leave(ctx):
         if ctx.guild.id in voice_states:
             del voice_states[ctx.guild.id]
         await ctx.send('Left the voice channel')
-        logger.info('Left the voice channel')
+        # logger.info('Left the voice channel')
     else:
         await ctx.send("I'm not in a voice channel.")
 
