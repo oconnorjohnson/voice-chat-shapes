@@ -1,0 +1,24 @@
+# fly.toml app configuration file generated for voice-chat-shapes on 2024-08-11T16:20:23-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'voice-chat-shapes'
+primary_region = 'sjc'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+# Specify that the app should use the Dockerfile for deployment
+[build]
+  dockerfile = "Dockerfile"
