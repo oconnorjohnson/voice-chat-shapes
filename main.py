@@ -81,8 +81,8 @@ async def process_audio(ctx, voice_state):
                 logger.warning("Voice client disconnected")
                 break
 
-            # Record audio in small chunks (e.g., 2 seconds)
-            audio_data = await record_audio(ctx.voice_client, duration=2)
+            # Record audio in smaller chunks (e.g., 1 second)
+            audio_data = await record_audio(ctx.voice_client, duration=1)
             
             if audio_data:
                 # Process the audio chunk
