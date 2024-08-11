@@ -14,6 +14,9 @@ import wave
 from scipy.io import wavfile
 import webrtcvad
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
+
+thread_pool = ThreadPoolExecutor(max_workers=3)
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -99,22 +102,20 @@ async def process_audio(ctx, voice_state):
                 logger.warning("Voice client disconnected")
                 break
 
-            # Record audio in smaller chunks (e.g., 0.1 seconds)
-            audio_data = await record_audio(ctx.voice_client, duration=0.1)
+            audio_data = await record_audio(ctx.voice_client, duration=0.05)  # Reduce to 50ms
             
             if audio_data:
                 voice_state.buffer.append(audio_data)
-                current_time = asyncio.get_event_loop().time()
+                if len(voice_state.buffer) > 20:  # Keep only 1 second of audio
+                    voice_state.buffer.pop(0)
                 
-                # Check if there's been a pause in speech
                 if await detect_speech_end(voice_state):
                     voice_state.is_processing = True
                     await process_buffer(ctx, voice_state)
                     voice_state.is_processing = False
-                else:
-                    voice_state.last_speech_time = current_time
 
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.02)  # Reduce sleep time
+    # ... (rest of the function remains the same)
     except Exception as e:
         logger.error(f"Error processing audio: {e}", exc_info=True)
     finally:
@@ -123,21 +124,36 @@ async def process_audio(ctx, voice_state):
         logger.info("Stopped listening")
         await ctx.send("Stopped listening.")
 
+# async def detect_speech_end(voice_state):
+#     if len(voice_state.buffer) < 1:  # Ensure at least 1.5 seconds of audio
+#         return False
+
+#     # Convert the last 1.5 seconds of audio to numpy array
+#     recent_audio = b''.join(voice_state.buffer[-15:])
+#     audio_np = np.frombuffer(recent_audio, dtype=np.int16)
+
+#     # Split audio into 30ms frames
+#     frame_duration = 30  # ms
+#     frame_size = int(48000 * frame_duration / 1000)  # samples per frame
+#     frames = [audio_np[i:i+frame_size] for i in range(0, len(audio_np), frame_size)]
+
+#     # Check if the last 0.5 seconds (5 frames) are silent
+#     is_speech = [voice_state.vad.is_speech(frame.tobytes(), 48000) for frame in frames[-5:]]
+    
+#     return not any(is_speech)
+
 async def detect_speech_end(voice_state):
-    if len(voice_state.buffer) < 15:  # Ensure at least 1.5 seconds of audio
+    if len(voice_state.buffer) < 10:  # Reduce to 1 second of audio
         return False
 
-    # Convert the last 1.5 seconds of audio to numpy array
-    recent_audio = b''.join(voice_state.buffer[-15:])
+    recent_audio = b''.join(voice_state.buffer[-10:])
     audio_np = np.frombuffer(recent_audio, dtype=np.int16)
 
-    # Split audio into 30ms frames
-    frame_duration = 30  # ms
-    frame_size = int(48000 * frame_duration / 1000)  # samples per frame
+    frame_duration = 20  # Reduce to 20ms frames
+    frame_size = int(48000 * frame_duration / 1000)
     frames = [audio_np[i:i+frame_size] for i in range(0, len(audio_np), frame_size)]
 
-    # Check if the last 0.5 seconds (5 frames) are silent
-    is_speech = [voice_state.vad.is_speech(frame.tobytes(), 48000) for frame in frames[-5:]]
+    is_speech = [voice_state.vad.is_speech(frame.tobytes(), 48000) for frame in frames[-3:]]  # Check last 60ms
     
     return not any(is_speech)
 
@@ -152,35 +168,28 @@ async def process_buffer(ctx, voice_state):
 
 async def process_audio_chunk(ctx, audio_data):
     try:
-        # Convert raw PCM to 16-bit integers
-        pcm_data = struct.unpack('h' * (len(audio_data) // 2), audio_data)
+        # Use io.BytesIO instead of temporary files
+        audio_io = io.BytesIO(audio_data)
         
-        # Create a temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-            with wave.open(temp_audio.name, 'wb') as wf:
-                wf.setnchannels(2)  # Stereo
-                wf.setsampwidth(2)  # 2 bytes per sample
-                wf.setframerate(48000)  # 48 kHz (Discord's audio rate)
-                wf.writeframes(struct.pack('h' * len(pcm_data), *pcm_data))
-        
-        # Transcribe audio using OpenAI's Whisper model
-        with open(temp_audio.name, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
-            )
+        # Use ThreadPoolExecutor for CPU-bound tasks
+        loop = asyncio.get_event_loop()
+        transcript = await loop.run_in_executor(thread_pool, lambda: client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("audio.wav", audio_io, "audio/wav")
+        ))
         
         user_input = transcript.text
-        if user_input.strip():  # Only process non-empty transcriptions
+        if user_input.strip():
             logger.info(f"Transcribed user input: {user_input}")
+            
+            # Generate AI response in parallel with sending the transcription
+            response_task = asyncio.create_task(generate_ai_response(user_input))
             await ctx.send(f"You said: {user_input}")
-            response = await generate_ai_response(user_input)
+            response = await response_task
+            
             await send_audio_response(ctx, response)
     except Exception as e:
         logger.error(f"Error processing audio chunk: {e}", exc_info=True)
-    finally:
-        if 'temp_audio' in locals():
-            os.unlink(temp_audio.name)
 
 async def record_audio(voice_client, duration):
     if not voice_client.is_connected():
@@ -236,9 +245,9 @@ async def on_recording_finished(sink, channel, *args):
 async def generate_ai_response(user_input):
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": "You are a playful friend in a discord voice channel. Have fun, do not be vulgar, but feel free to poke fun and be sarcastic. "},
                 {"role": "user", "content": user_input}
             ]
         )
@@ -251,19 +260,17 @@ async def generate_ai_response(user_input):
 
 async def send_audio_response(ctx, text):
     try:
-        audio_response = client.audio.speech.create(
+        response = await asyncio.to_thread(client.audio.speech.create,
             model="tts-1",
-            voice="alloy",
+            voice="shimmer",
             input=text
         )
+
+        # Stream directly to Discord without saving to a file
+        audio_source = discord.FFmpegPCMAudio(io.BytesIO(response.content), pipe=True)
+        ctx.voice_client.play(audio_source)
         
-        # Convert audio response to a format Discord can play
-        audio_segment = AudioSegment.from_mp3(io.BytesIO(audio_response.content))
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as fp:
-            audio_segment.export(fp.name, format="wav")
-            ctx.voice_client.play(discord.FFmpegPCMAudio(fp.name), after=lambda e: os.unlink(fp.name))
-        logger.info("Sent audio response")
+        logger.info("Sent streaming audio response")
     except Exception as e:
         logger.error(f"Error sending audio response: {e}")
         await ctx.send("Sorry, I couldn't send an audio response. Here's the text: " + text)
