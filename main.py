@@ -15,6 +15,7 @@ from scipy.io import wavfile
 import webrtcvad
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
+from flask import Flask
 
 thread_pool = ThreadPoolExecutor(max_workers=3)
 
