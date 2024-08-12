@@ -15,7 +15,6 @@ from scipy.io import wavfile
 import webrtcvad
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask
 
 thread_pool = ThreadPoolExecutor(max_workers=3)
 
@@ -48,10 +47,6 @@ class VoiceState:
 
 voice_states = {}
 
-# @bot.event
-# async def on_ready():
-    # logger.info(f'Logged in as {bot.user.name}')
-
 @bot.command()
 async def join(ctx):
     if ctx.author.voice is None:
@@ -64,7 +59,7 @@ async def join(ctx):
         await channel.connect()
     
     await ctx.send(f"Joined {channel.name}")
-   #  logger.info(f"Joined voice channel: {channel.name}")
+
 
 @bot.command()
 async def listen(ctx):
@@ -96,13 +91,11 @@ async def stop(ctx):
 
 async def process_audio(ctx, voice_state):
     # logger.info("Started processing audio")
-    
     try:
         while voice_state.is_listening and not voice_state.stop_requested:
             if not ctx.voice_client or not ctx.voice_client.is_connected():
                 # logger.warning("Voice client disconnected")
                 break
-
             audio_data = await record_audio(ctx.voice_client, duration=0.05)  
             
             if audio_data:
@@ -148,31 +141,6 @@ async def process_buffer(ctx, voice_state):
     voice_state.buffer.clear()
 
     await process_audio_chunk(ctx, combined_audio)
-
-async def process_audio_chunk(ctx, audio_data):
-    try:
-        # Use io.BytesIO instead of temporary files
-        audio_io = io.BytesIO(audio_data)
-        
-        # Use ThreadPoolExecutor for CPU-bound tasks
-        loop = asyncio.get_event_loop()
-        transcript = await loop.run_in_executor(thread_pool, lambda: client.audio.transcriptions.create(
-            model="whisper-1",
-            file=("audio.wav", audio_io, "audio/wav")
-        ))
-        
-        user_input = transcript.text
-        if user_input.strip():
-            # logger.info(f"Transcribed user input: {user_input}")
-            
-            # Generate AI response in parallel with sending the transcription
-            response_task = asyncio.create_task(generate_ai_response(user_input))
-            await ctx.send(f"You said: {user_input}")
-            response = await response_task
-            
-            await send_audio_response(ctx, response)
-    except Exception as e:
-        logger.error(f"Error processing audio chunk: {e}", exc_info=True)
 
 async def record_audio(voice_client, duration):
     if not voice_client.is_connected():
